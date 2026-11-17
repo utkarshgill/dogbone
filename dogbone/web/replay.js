@@ -27,6 +27,7 @@ export async function openReplay(dialog) {
   const play = dialog.querySelector("[data-play]");
   const previous = dialog.querySelector("[data-prev]");
   const next = dialog.querySelector("[data-next]");
+  const exportButton = dialog.querySelector("[data-export]");
   const scrub = dialog.querySelector("input");
   const caption = dialog.querySelector("output");
   const base = 1.2, span = 4, tail = 1.4;
@@ -34,24 +35,16 @@ export async function openReplay(dialog) {
   scrub.max = duration;
   const stops = stages.map((_, i) => i ? base + span * i : 0);
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const recording = new AbortController();
   let time = 0, cancel;
 
-  function paint() {
-    const stage = Math.max(0, Math.min(stages.length - 2, Math.floor((time - base) / span)));
-    const elapsed = (time - base) / span - stage;
+  function drawFrame(ctx, w, h, seconds) {
+    const stage = Math.max(0, Math.min(stages.length - 2, Math.floor((seconds - base) / span)));
+    const elapsed = (seconds - base) / span - stage;
     const [name, commit, firstCenter, firstOutline] = stages[stage];
     const [nextName, nextCommit, nextCenter, nextOutline] = stages[stage + 1];
     const transition = ease(elapsed);
-    const label = elapsed > .01 ? nextName + " · " + nextCommit : name + " · " + commit;
-    if (caption.value !== label) caption.value = label;
-
-    const w = canvas.clientWidth, h = canvas.clientHeight, density = Math.min(devicePixelRatio, 2);
-    if (!w || !h) return;
-    if (canvas.width !== Math.round(w * density) || canvas.height !== Math.round(h * density)) {
-      canvas.width = Math.round(w * density);
-      canvas.height = Math.round(h * density);
-    }
-    ctx.setTransform(density, 0, 0, density, 0, 0);
+    ctx.save();
     ctx.fillStyle = "#0e1513";
     ctx.fillRect(0, 0, w, h);
     const scale = Math.min(w, h) / 90;
@@ -71,7 +64,7 @@ export async function openReplay(dialog) {
       const ymin = Math.min(...outline.flatMap(([, y, , v]) => [y, v]));
       const xmax = Math.max(...outline.flatMap(([x, , u]) => [x, u]));
       const ymax = Math.max(...outline.flatMap(([, y, , v]) => [y, v]));
-      ctx.globalAlpha = firstOutline.length ? 1 : transition;
+      ctx.globalAlpha = firstOutline.length ? 1 : ease((transition - .7) / .3);
       ctx.fillStyle = "#1e322b";
       ctx.fillRect(xmin, ymin, xmax - xmin, ymax - ymin);
       ctx.strokeStyle = "#719381";
@@ -104,6 +97,19 @@ export async function openReplay(dialog) {
       ctx.fill(drills);
       ctx.restore();
     }
+    ctx.restore();
+    return elapsed > .01 ? nextName + " · " + nextCommit : name + " · " + commit;
+  }
+
+  function paint() {
+    const w = canvas.clientWidth, h = canvas.clientHeight, density = Math.min(devicePixelRatio, 2);
+    if (!w || !h) return;
+    if (canvas.width !== Math.round(w * density) || canvas.height !== Math.round(h * density)) {
+      canvas.width = Math.round(w * density);
+      canvas.height = Math.round(h * density);
+    }
+    ctx.setTransform(density, 0, 0, density, 0, 0);
+    caption.value = drawFrame(ctx, w, h, time);
   }
 
   function pause() {
@@ -136,12 +142,31 @@ export async function openReplay(dialog) {
     pause();
     seek(scrub.valueAsNumber);
   };
+  exportButton.disabled = !window.MediaRecorder || !canvas.captureStream;
+  exportButton.onclick = async () => {
+    exportButton.disabled = true;
+    exportButton.textContent = "Exporting…";
+    try {
+      const {exportVideo} = await import("./video.js");
+      await exportVideo(drawFrame, duration, recording.signal, p => {
+        exportButton.textContent = "Exporting " + Math.round(p * 100) + "%";
+      });
+      if (!recording.signal.aborted) exportButton.textContent = "Export video";
+    } catch (error) {
+      console.error(error);
+      if (!recording.signal.aborted) exportButton.textContent = "Retry export";
+    } finally {
+      if (!recording.signal.aborted) exportButton.disabled = false;
+    }
+  };
   const resize = new ResizeObserver(paint);
   dialog.addEventListener("close", () => {
+    recording.abort();
     pause();
     resize.disconnect();
   }, {once: true});
   dialog.querySelector("#replay-title").textContent = "Placement replay";
+  exportButton.textContent = "Export video";
   play.textContent = "Play";
   dialog.showModal();
   resize.observe(canvas);

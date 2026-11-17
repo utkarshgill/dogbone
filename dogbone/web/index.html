@@ -57,6 +57,7 @@
   #replay canvas { display: block; width: 100%; height: min(67dvh, 72vw); margin: 8px 0; background: #0e1513; }
   #replay form, #replay-controls { display: flex; align-items: center; gap: 10px; }
   #replay form { justify-content: space-between; }
+  #replay [data-export] { margin-left: auto; }
   #replay input { flex: 1; min-width: 0; accent-color: #aceabd; }
   #replay output { font-size: 12px; color: #a7b8ad; }
   @media(max-width: 730px) {
@@ -107,7 +108,11 @@
   </aside>
 </div>
 <dialog id="replay" aria-labelledby="replay-title">
-  <form method="dialog"><strong id="replay-title">Placement replay</strong><button type="submit">Close</button></form>
+  <form method="dialog">
+    <strong id="replay-title">Placement replay</strong>
+    <button type="button" data-export>Export video</button>
+    <button type="submit">Close</button>
+  </form>
   <canvas aria-label="Animated footprint placements"></canvas>
   <div id="replay-controls">
     <button type="button" data-prev aria-label="Previous placement" title="Previous placement">‹</button>

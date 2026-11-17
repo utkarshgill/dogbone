@@ -28,4 +28,4 @@ claude mcp add --transport http dogbone http://127.0.0.1:4083/mcp
 
 start your agent in this folder. try `Move SW1 2 mm left with dogbone.` then `Undo it.`
 
-Replay animates four saved PCBGolf placements in the browser. It leaves the open board alone.
+Live moves glide in Board view. Replay steps through four saved PCBGolf placements and exports a video from the same timeline. Replay leaves the open board alone.
