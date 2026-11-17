@@ -136,7 +136,7 @@ export async function openReplay(dialog) {
     cancel = animate(850, p => seek(mix(from, to, p)), pause, reduced);
   }
   play.onclick = () => cancel ? pause() : start();
-  previous.onclick = () => step(stops.findLast(stop => stop < time - .02));
+  previous.onclick = () => step(stops.findLast(stop => stop < Math.min(time, stops.at(-1)) - .02));
   next.onclick = () => step(stops.find(stop => stop > time + .02));
   scrub.oninput = () => {
     pause();
