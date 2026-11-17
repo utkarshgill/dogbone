@@ -64,6 +64,8 @@ export function createBoardView(canvas) {
   let model, distance = .25, radius = .06;
   let modelBounds = new Map();
   let poses = new Map(), moving = new Map(), cancelMotion;
+  let modelSource;
+  const footprintNodes = new Map();
   let afterDraw = () => {};
   const raycast = new THREE.Raycaster();
 
@@ -107,8 +109,36 @@ export function createBoardView(canvas) {
     draw();
   }, {passive: false});
 
-  async function replace(data) {
+  async function replace(data, isCurrent) {
     const {scene: source} = await new GLTFLoader().parseAsync(data, "");
+    if (!isCurrent()) return false;
+    footprintNodes.clear();
+    source.traverse(node => {
+      if (/^[A-Za-z]+\d+[A-Za-z0-9_-]*$/.test(node.name)) footprintNodes.set(node.name, node);
+    });
+    rebuild(source);
+    return true;
+  }
+
+  function place(before, after) {
+    const prior = new Map(before.map(part => [part.ref, part]));
+    let changed = false;
+    for (const part of after) {
+      const old = prior.get(part.ref), node = footprintNodes.get(part.ref);
+      if (!old || !node || old.angle !== part.angle) continue;
+      const dx = (part.position[0] - old.position[0]) / 1000;
+      const dz = (part.position[1] - old.position[1]) / 1000;
+      if (!dx && !dz) continue;
+      const position = node.getWorldPosition(new THREE.Vector3());
+      position.x += dx;
+      position.z += dz;
+      node.position.copy(node.parent.worldToLocal(position));
+      changed = true;
+    }
+    if (changed) rebuild(modelSource);
+  }
+
+  function rebuild(source) {
     cancelMotion?.();
     const prior = poses;
     poses = new Map();
@@ -117,24 +147,23 @@ export function createBoardView(canvas) {
     const excluded = new Set();
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     source.updateMatrixWorld(true);
-    source.traverse(node => {
-      if (!/^[A-Za-z]+\d+[A-Za-z0-9_-]*$/.test(node.name)) return;
+    for (const [ref, node] of footprintNodes) {
       const box = new THREE.Box3().setFromObject(node);
-      if (!box.isEmpty()) modelBounds.set(node.name, box);
+      if (!box.isEmpty()) modelBounds.set(ref, box);
       const position = new THREE.Vector3(), rotation = new THREE.Quaternion();
       node.matrixWorld.decompose(position, rotation, new THREE.Vector3());
       const to = {position, rotation};
-      poses.set(node.name, to);
-      const from = prior.get(node.name);
-      if (reduced || !from || (position.distanceToSquared(from.position) < 1e-16 && rotation.angleTo(from.rotation) < 1e-5)) return;
+      poses.set(ref, to);
+      const from = prior.get(ref);
+      if (reduced || !from || (position.distanceToSquared(from.position) < 1e-16 && rotation.angleTo(from.rotation) < 1e-5)) continue;
       const artwork = batchStaticModel(node);
       const pivot = new THREE.Group();
       artwork.position.copy(position).negate();
       pivot.position.copy(position);
       pivot.add(artwork);
-      moving.set(node.name, {pivot, from, to, inverse: rotation.clone().invert()});
+      moving.set(ref, {pivot, from, to, inverse: rotation.clone().invert()});
       node.traverse(child => excluded.add(child));
-    });
+    }
     const next = batchStaticModel(source, excluded);
     for (const {pivot} of moving.values()) next.add(pivot);
     const bounds = new THREE.Box3().setFromObject(next);
@@ -147,11 +176,14 @@ export function createBoardView(canvas) {
       scene.remove(model);
       model.traverse(part => {
         part.geometry?.dispose();
-        for (const material of [].concat(part.material || [])) material.dispose();
+        if (modelSource !== source) {
+          for (const material of [].concat(part.material || [])) material.dispose();
+        }
       });
     }
     scene.add(next);
     model = next;
+    modelSource = source;
     if (first) fit();
     else if (!moving.size) draw();
     else {
@@ -223,5 +255,5 @@ export function createBoardView(canvas) {
     return [screen.min.x, screen.min.y, screen.max.x-screen.min.x, screen.max.y-screen.min.y];
   }
 
-  return {fit, draw, replace, pick, locate, onDraw: callback => { afterDraw = callback; }};
+  return {fit, draw, replace, place, pick, locate, onDraw: callback => { afterDraw = callback; }};
 }

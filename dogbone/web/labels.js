@@ -5,7 +5,7 @@ const svg = (tag, attrs) => {
   return node;
 };
 
-export function createLabels(canvas) {
+export function createLabels(canvas, onParts) {
   const overlay = document.querySelector("#labels");
   const components = document.querySelector("#components");
   const detail = document.querySelector("#part-detail");
@@ -126,11 +126,13 @@ export function createLabels(canvas) {
       if (!response.ok) throw new Error("Could not read footprints");
       const result = await response.json();
       if (`"${result.revision}"` !== frame.etag) return;
+      const previous = data;
       data = result;
       const box = frame.viewBox;
       viewBox = box.trim().split(/\s+/).map(Number);
       overlay.setAttribute("viewBox",box);
       populate();
+      onParts(previous, data);
     } catch {
       detail.textContent = "Part labels need the board open in KiCad.";
     } finally {

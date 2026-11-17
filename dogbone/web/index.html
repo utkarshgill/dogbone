@@ -148,7 +148,7 @@
   const canvas = document.querySelector("#three");
   const boardButton = document.querySelector("#board-view");
   const modelButton = document.querySelector("#model-view");
-  const labels = createLabels(canvas);
+  const labels = createLabels(canvas, showPlacements);
   const componentTab = document.querySelector("#components-view");
   const layerTab = document.querySelector("#layers-view");
   const layerInputs = [...document.querySelectorAll("[data-layer]")];
@@ -168,7 +168,13 @@
   }
   let etag = "", url = "", scale = 1, x = 0, y = 0, pointer = null;
   let show3d = new URLSearchParams(location.search).get("view") === "3d";
-  let viewer, viewerTask, modelEtag = "", modelTask, nextModelRetry = 0;
+  let viewer, viewerTask, modelEtag = "", placedEtag = "", modelTask, nextModelRetry = 0;
+  function showPlacements(before, after) {
+    if (!show3d || !before || placedEtag !== `"${before.revision}"`) return;
+    viewer.place(before.parts, after.parts);
+    placedEtag = `"${after.revision}"`;
+    labels.model(viewer, placedEtag);
+  }
   function displayMode() {
     boardButton.setAttribute("aria-pressed", !show3d);
     modelButton.setAttribute("aria-pressed", show3d);
@@ -208,8 +214,9 @@
         const response = await fetch("/model.glb", {headers: modelEtag ? {"If-None-Match": modelEtag} : {}});
         if (response.status !== 304) {
           if (!response.ok) throw new Error("3D export failed");
-          await viewer.replace(await response.arrayBuffer());
-          modelEtag = response.headers.get("ETag") || "";
+          const revision = response.headers.get("ETag");
+          if (revision !== etag || !await viewer.replace(await response.arrayBuffer(), () => revision === etag)) return;
+          placedEtag = modelEtag = revision;
           labels.model(viewer,modelEtag);
         }
         if (show3d) status.textContent = "Ready";
