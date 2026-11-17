@@ -6,7 +6,6 @@ const svg = (tag, attrs) => {
 };
 
 export function createLabels(canvas) {
-  const toggle = document.querySelector("#labels-toggle");
   const overlay = document.querySelector("#labels");
   const components = document.querySelector("#components");
   const detail = document.querySelector("#part-detail");
@@ -18,7 +17,7 @@ export function createLabels(canvas) {
   const caption = svg("text", {class: "part-caption", "pointer-events": "none"});
   overlay.append(targets, outline, caption);
 
-  let enabled = false, is3d = false, selected, frame, data, pending, viewBox;
+  let is3d = false, selected, frame, data, pending, viewBox;
   let model, modelRevision, pointerStart;
   const rows = new Map();
   const find = ref => data?.parts.find(part => part.ref === ref);
@@ -34,7 +33,6 @@ export function createLabels(canvas) {
     const rect = is3d && modelReady() && selected ? model.locate(selected) : null;
     modelMark.hidden = !rect;
     if (!rect) return;
-    tag.hidden = !enabled;
     tag.textContent = selected.ref;
     for (const [key,value] of Object.entries({left:rect[0],top:rect[1],width:rect[2],height:rect[3]})) {
       modelMark.style[key] = `${value}%`;
@@ -43,8 +41,9 @@ export function createLabels(canvas) {
 
   function highlight() {
     const part = sameRevision() ? selected : null;
-    outline.setAttribute("visibility", part && !is3d ? "visible" : "hidden");
-    caption.setAttribute("visibility", part && enabled && !is3d ? "visible" : "hidden");
+    const visibility = part && !is3d ? "visible" : "hidden";
+    outline.setAttribute("visibility", visibility);
+    caption.setAttribute("visibility", visibility);
     if (part && viewBox && !is3d) {
       const b = bounds(part);
       for (const [key,value] of Object.entries(b)) outline.setAttribute(key,value);
@@ -136,14 +135,6 @@ export function createLabels(canvas) {
     }
   }
 
-  function show() {
-    toggle.setAttribute("aria-pressed",enabled);
-    overlay.toggleAttribute("hidden", is3d);
-    refresh();
-    highlight();
-  }
-
-  toggle.onclick = () => { enabled = !enabled; show(); };
   overlay.addEventListener("click", event => {
     if (sameRevision() && event.target.dataset.ref) select(find(event.target.dataset.ref));
   });
@@ -159,7 +150,12 @@ export function createLabels(canvas) {
     pointerStart = null;
   });
   return {
-    view: mode => { is3d = mode; show(); },
+    view: mode => {
+      is3d = mode;
+      overlay.toggleAttribute("hidden", is3d);
+      refresh();
+      highlight();
+    },
     frame: (etag,viewBox) => {
       if (frame?.etag === etag) return;
       frame = {etag,viewBox};
