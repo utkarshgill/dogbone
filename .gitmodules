@@ -1,0 +1,3 @@
+[submodule "examples/pcbgolf"]
+	path = examples/pcbgolf
+	url = https://github.com/commaai/PCBGolf.git

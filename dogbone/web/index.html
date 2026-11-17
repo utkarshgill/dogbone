@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>dogbone</title>
+<style>
+  :root { color-scheme: dark; font: 14px system-ui; background: #000; color: #ededed; }
+  body { margin: 0; height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #242424; }
+  header strong { margin-right: auto; }
+  #status { color: #a3a3a3; font-size: 12px; }
+  button { padding: 4px 12px; border: 1px solid #3e3e3e; border-radius: 4px; background: #000; }
+  main { position: relative; display: grid; place-items: center; min-height: 0; container-type: size; overflow: hidden; touch-action: none; cursor: grab; }
+  button[aria-pressed="true"] { border-color: #9a9a9a; background: #242424; }
+  #three { position: absolute; inset: 0; width: 100%; height: 100%; }
+  main:active { cursor: grabbing; }
+  img { width: min(93cqw, calc(93cqh * var(--aspect, 1))); height: auto; user-select: none; }
+</style>
+<header>
+  <strong>dogbone</strong>
+  <span id="status" role="status">Loading board</span>
+  <div role="group" aria-label="View">
+    <button id="board-view" type="button" aria-pressed="true">Board</button>
+    <button id="model-view" type="button" aria-pressed="false">3D</button>
+  </div>
+  <button id="fit" type="button" title="Fit the whole board in view">Fit</button>
+</header>
+<main><img alt="KiCad board preview" draggable="false" hidden><canvas id="three" aria-label="3D KiCad board" hidden></canvas></main>
+<script type="importmap">{"imports":{"three":"/preview-assets/vendor/three.module.js"}}</script>
+<script>
+  const view = document.querySelector("main");
+  const board = document.querySelector("img");
+  const status = document.querySelector("#status");
+  const canvas = document.querySelector("#three");
+  const boardButton = document.querySelector("#board-view");
+  const modelButton = document.querySelector("#model-view");
+  let etag = "", url = "", scale = 1, x = 0, y = 0, pointer = null;
+  let show3d = new URLSearchParams(location.search).get("view") === "3d";
+  let viewer, viewerTask, modelEtag = "", modelTask, nextModelRetry = 0;
+  function displayMode() {
+    boardButton.setAttribute("aria-pressed", !show3d);
+    modelButton.setAttribute("aria-pressed", show3d);
+    board.hidden = show3d || !url;
+    canvas.hidden = !show3d;
+    if (show3d) {
+      viewer?.draw();
+      updateModel();
+    } else {
+      status.textContent = url ? "Ready" : "Loading board";
+    }
+  }
+  boardButton.onclick = () => {
+    show3d = false;
+    displayMode();
+  };
+  modelButton.onclick = () => {
+    show3d = true;
+    nextModelRetry = 0;
+    displayMode();
+  };
+  function updateModel() {
+    if (!show3d || !etag || modelTask || Date.now() < nextModelRetry) return;
+    if (modelEtag === etag) {
+      status.textContent = "Ready";
+      return;
+    }
+    status.textContent = modelEtag ? "Updating 3D" : "Loading 3D";
+    modelTask = (async () => {
+      try {
+        viewerTask ||= import("/preview-assets/board3d.js");
+        const {createBoardView} = await viewerTask;
+        viewer ||= createBoardView(canvas);
+        const response = await fetch("/model.glb", {headers: modelEtag ? {"If-None-Match": modelEtag} : {}});
+        if (response.status !== 304) {
+          if (!response.ok) throw new Error("3D export failed");
+          await viewer.replace(await response.arrayBuffer());
+          modelEtag = response.headers.get("ETag") || "";
+        }
+        if (show3d) status.textContent = "Ready";
+      } catch {
+        nextModelRetry = Date.now() + 5000;
+        if (show3d) status.textContent = "3D unavailable";
+      } finally {
+        modelTask = null;
+      }
+    })();
+  }
+
+  const transform = () => { board.style.transform = `translate(${x}px,${y}px) scale(${scale})`; };
+  document.querySelector("#fit").onclick = () => {
+    if (show3d) viewer?.fit();
+    else { scale = 1; x = y = 0; transform(); }
+  };
+  view.addEventListener("wheel", event => {
+    if (show3d) return;
+    event.preventDefault();
+    scale = Math.min(12, Math.max(0.6, scale * Math.exp(-event.deltaY / 520)));
+    transform();
+  }, {passive:false});
+  view.addEventListener("pointerdown", event => {
+    if (show3d) return;
+    pointer = event.pointerId;
+    view.setPointerCapture(pointer);
+  });
+  view.addEventListener("pointermove", event => {
+    if (pointer !== event.pointerId) return;
+    x += event.movementX; y += event.movementY; transform();
+  });
+  view.addEventListener("lostpointercapture", () => { pointer = null; });
+  async function refresh() {
+    try {
+      const response = await fetch("/frame.svg", {headers: etag ? {"If-None-Match": etag} : {}});
+      if (response.status !== 304) {
+        if (!response.ok) throw new Error("Waiting for board");
+        const next = URL.createObjectURL(await response.blob());
+        const image = new Image();
+        image.src = next;
+        await image.decode();
+        board.style.setProperty("--aspect", image.naturalWidth / image.naturalHeight);
+        board.src = next;
+        board.hidden = show3d;
+        if (url) URL.revokeObjectURL(url);
+        url = next;
+        etag = response.headers.get("ETag") || "";
+      }
+      if (show3d) updateModel();
+      else status.textContent = "Ready";
+    } catch {
+      status.textContent = "Reconnecting";
+    } finally {
+      setTimeout(refresh, 150);
+    }
+  }
+  displayMode();
+  refresh();
+</script>
