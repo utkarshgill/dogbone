@@ -9,7 +9,6 @@ export function createLabels(canvas) {
   const toggle = document.querySelector("#labels-toggle");
   const overlay = document.querySelector("#labels");
   const components = document.querySelector("#components");
-  const picker = document.querySelector("#part-picker");
   const detail = document.querySelector("#part-detail");
   const fields = document.querySelector("#part-fields");
   const modelMark = document.querySelector("#model-mark");
@@ -59,7 +58,6 @@ export function createLabels(canvas) {
   function select(part) {
     rows.get(selected?.ref)?.setAttribute("aria-pressed","false");
     selected = part;
-    picker.value = part?.ref || "";
     detail.textContent = part ? [
       part.name || part.value, part.description,
     ].filter(Boolean).join(" · ") : "Select a part.";
@@ -89,23 +87,17 @@ export function createLabels(canvas) {
   }
 
   function populate() {
-    const first = new Option("Select a part", "");
-    const groups = new Map();
     const sections = new Map();
     rows.clear();
     for (const part of data.parts.sort((a,b) => a.ref.localeCompare(b.ref,"en",{numeric:true}))) {
       const group = part.group || "Footprints";
-      if (!groups.has(group)) {
-        const item = document.createElement("optgroup");
-        item.label = group;
-        groups.set(group,item);
+      if (!sections.has(group)) {
         const section = document.createElement("details");
         const title = document.createElement("summary");
         title.textContent = group;
         section.append(title);
         sections.set(group,section);
       }
-      groups.get(group).append(new Option(`${part.ref} · ${part.name || part.value}`,part.ref));
       const row = document.createElement("button");
       row.type = "button";
       row.className = "component";
@@ -115,7 +107,6 @@ export function createLabels(canvas) {
       sections.get(group).append(row);
       rows.set(part.ref,row);
     }
-    picker.replaceChildren(first,...groups.values());
     components.replaceChildren(...sections.values());
     const area = p => p.bounds[2]*p.bounds[3];
     targets.replaceChildren(...[...data.parts].sort((a,b) => area(b)-area(a))
@@ -153,7 +144,6 @@ export function createLabels(canvas) {
   }
 
   toggle.onclick = () => { enabled = !enabled; show(); };
-  picker.onchange = () => select(find(picker.value));
   overlay.addEventListener("click", event => {
     if (sameRevision() && event.target.dataset.ref) select(find(event.target.dataset.ref));
   });
