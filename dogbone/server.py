@@ -1,5 +1,6 @@
 """The dogbone browser view and MCP endpoint for one open KiCad board."""
 import argparse
+from functools import lru_cache
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from starlette.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from .kicad import Connector, make_server
+from .footprint import footprint_for_plot
 
 
 WEB = Path(__file__).resolve().parent / "web"
@@ -39,9 +41,26 @@ class Preview:
         self.temp = TemporaryDirectory(prefix="dogbone-")
         self.cache = {}
         self.locks = {kind: Lock() for kind in EXPORTS}
+        self.footprint_lock = Lock()
+        self.plot_footprint = lru_cache(maxsize=32)(self._plot_footprint)
 
     def publish(self, revision, document):
         self.snapshot = revision, document
+
+    def selected_footprint(self, reference):
+        footprint = footprint_for_plot(self.snapshot[1], reference)
+        if footprint is not None:
+            with self.footprint_lock:
+                return self.plot_footprint(footprint)
+
+    def _plot_footprint(self, footprint):
+        folder = Path(self.temp.name)
+        library = folder / "selection.pretty"
+        library.mkdir(exist_ok=True)
+        (library / "preview.kicad_mod").write_bytes(footprint)
+        subprocess.run([CLI, "fp", "export", "svg", "--layers", "F.Cu,B.Cu,F.Silkscreen,B.Silkscreen",
+                        "--output", str(folder), str(library)], check=True, capture_output=True, timeout=8)
+        return (folder / "preview.svg").read_bytes()
 
     def export(self, kind, layers):
         # Deduplicate concurrent viewers. SVG and GLB export independently.
@@ -106,6 +125,19 @@ def create_app(board_path, socket, replay_path=None):
             print(f"KiCad label read failed: {error}", flush=True)
             return Response("Part labels unavailable", status_code=503)
         return Response(json.dumps(result), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+    @server.custom_route("/footprint.svg", methods=["GET"])
+    async def footprint(request):
+        reference = request.query_params.get("ref", "")
+        if not 1 <= len(reference) <= 64:
+            return Response(status_code=404)
+        try:
+            data = await run_in_threadpool(preview.selected_footprint, reference)
+        except (subprocess.SubprocessError, OSError):
+            return Response(status_code=503)
+        if data is None:
+            return Response(status_code=404)
+        return Response(data, media_type="image/svg+xml", headers={"Cache-Control": "no-cache"})
 
     @server.custom_route("/frame.svg", methods=["GET"])
     @server.custom_route("/model.glb", methods=["GET"])

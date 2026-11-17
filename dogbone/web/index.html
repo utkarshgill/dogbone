@@ -48,6 +48,8 @@
   #components .component span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #properties h2, #properties p { margin: 0 0 10px; }
   #properties h2 { font-size: 14px; }
+  #footprint-preview { display: grid; place-items: center; height: 110px; margin-bottom: 10px; background: #172623; border: 1px solid #303e38; }
+  #footprint-preview img { width: 77px; height: 77px; object-fit: contain; }
   #part-detail, #properties dd { color: #ccc; overflow-wrap: anywhere; }
   #properties dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 7px; }
   #properties dt { color: #aaa; }
@@ -103,6 +105,7 @@
   </main>
   <aside id="properties" aria-label="Properties">
     <h2>Properties</h2>
+    <div id="footprint-preview" hidden><img alt="Selected KiCad footprint"></div>
     <p id="part-detail" aria-live="polite">Select a part.</p>
     <dl id="part-fields" hidden></dl>
   </aside>

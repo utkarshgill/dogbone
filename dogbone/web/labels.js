@@ -10,6 +10,10 @@ export function createLabels(canvas, onParts) {
   const components = document.querySelector("#components");
   const detail = document.querySelector("#part-detail");
   const fields = document.querySelector("#part-fields");
+  const previewPanel = document.querySelector("#footprint-preview");
+  const preview = previewPanel.querySelector("img");
+  preview.onload = () => { previewPanel.hidden = false; };
+  preview.onerror = () => { previewPanel.hidden = true; };
   const modelMark = document.querySelector("#model-mark");
   const tag = document.querySelector("#model-label");
   const targets = svg("g", {});
@@ -62,6 +66,19 @@ export function createLabels(canvas, onParts) {
     ].filter(Boolean).join(" · ") : "Select a part.";
     fields.replaceChildren();
     fields.hidden = !part;
+    if (!part) {
+      previewPanel.hidden = true;
+      preview.removeAttribute("src");
+    } else {
+      const source = `/footprint.svg?ref=${encodeURIComponent(part.ref)}&revision=${data.revision}`;
+      if (preview.getAttribute("src") !== source) {
+        if (preview.dataset.ref !== part.ref) previewPanel.hidden = true;
+        preview.dataset.ref = part.ref;
+        preview.alt = `${part.ref} KiCad footprint`;
+        preview.style.transform = `rotate(${-part.angle}deg)`;
+        preview.src = source;
+      }
+    }
     if (part) {
       const row = rows.get(part.ref);
       if (row) {
