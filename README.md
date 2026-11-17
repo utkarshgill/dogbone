@@ -12,10 +12,10 @@ python3 -m venv .venv
 .venv/bin/pip install .
 ```
 
-open `examples/pcbgolf/pcbgolf.kicad_pcb` in kicad. enable the ipc api in preferences.
+open `examples/pcbgolf/work/pcbgolf.kicad_pcb` in kicad. enable the ipc api in preferences.
 
 ```sh
-.venv/bin/python -m dogbone --board examples/pcbgolf/pcbgolf.kicad_pcb
+.venv/bin/python -m dogbone --board examples/pcbgolf/work/pcbgolf.kicad_pcb
 ```
 
 browser `http://localhost:4083/`

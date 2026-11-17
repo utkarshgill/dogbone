@@ -1,3 +1,7 @@
 [submodule "examples/pcbgolf"]
-	path = examples/pcbgolf
+	path = examples/pcbgolf/upstream
 	url = https://github.com/commaai/PCBGolf.git
+[submodule "pcbgolf-work"]
+	path = examples/pcbgolf/work
+	url = https://github.com/utkarshgill/PCBGolf.git
+	branch = layout
