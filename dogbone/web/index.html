@@ -90,8 +90,10 @@
     <div id="layers" hidden>
       <label><input type="checkbox" data-layer="F.Cu" checked> Front copper</label>
       <label><input type="checkbox" data-layer="B.Cu" checked> Back copper</label>
+      <label><input type="checkbox" id="pours"> Copper pours</label>
       <label><input type="checkbox" data-layer="F.Silkscreen" checked> Silkscreen</label>
       <label><input type="checkbox" data-layer="Edge.Cuts" checked> Board outline</label>
+      <label id="mask-setting" hidden><input type="checkbox" id="solder-mask"> Solder mask</label>
     </div>
   </aside>
   <main>
@@ -156,8 +158,11 @@
   const componentTab = document.querySelector("#components-view");
   const layerTab = document.querySelector("#layers-view");
   const layerInputs = [...document.querySelectorAll("[data-layer]")];
+  const pours = document.querySelector("#pours");
+  const mask = document.querySelector("#solder-mask");
   const layerKey = () => layerInputs.filter(input => input.checked).map(input => input.dataset.layer).join(",");
-  let renderedLayers = "";
+  const plotKey = () => new URLSearchParams({layers: layerKey(), pours: pours.checked ? "1" : "0"}).toString();
+  let renderedPlot = "";
   let plotWidth = 0;
   function navigator(showLayers) {
     componentTab.setAttribute("aria-pressed",!showLayers);
@@ -172,7 +177,7 @@
   }
   let etag = "", url = "", scale = 1, x = 0, y = 0, pointer = null;
   let show3d = new URLSearchParams(location.search).get("view") === "3d";
-  let viewer, viewerTask, modelEtag = "", placedEtag = "", modelTask, nextModelRetry = 0;
+  let viewer, viewerTask, modelEtag = "", placedEtag = "", modelTask, renderedMask, nextModelRetry = 0;
   function showPlacements(before, after) {
     if (!show3d || !before || placedEtag !== `"${before.revision}"`) return;
     viewer.place(before.parts, after.parts);
@@ -187,6 +192,8 @@
     updateGrid();
     labels.view(show3d);
     layerInputs.forEach(input => { input.disabled = show3d; });
+    pours.disabled = show3d;
+    document.querySelector("#mask-setting").hidden = !show3d;
     if (show3d) {
       viewer?.draw();
       updateModel();
@@ -205,7 +212,8 @@
   };
   function updateModel() {
     if (!show3d || !etag || modelTask || Date.now() < nextModelRetry) return;
-    if (modelEtag === etag) {
+    const masked = mask.checked;
+    if (modelEtag === etag && renderedMask === masked) {
       status.textContent = "Ready";
       return;
     }
@@ -215,12 +223,15 @@
         viewerTask ||= import("/preview-assets/board3d.js");
         const {createBoardView} = await viewerTask;
         viewer ||= createBoardView(canvas);
-        const response = await fetch("/model.glb", {headers: modelEtag ? {"If-None-Match": modelEtag} : {}});
+        const headers = modelEtag && renderedMask === masked ? {"If-None-Match": modelEtag} : {};
+        const response = await fetch(`/model.glb?mask=${masked ? "1" : "0"}`, {headers});
         if (response.status !== 304) {
           if (!response.ok) throw new Error("3D export failed");
           const revision = response.headers.get("ETag");
-          if (revision !== etag || !await viewer.replace(await response.arrayBuffer(), () => revision === etag)) return;
+          const current = () => revision === etag && masked === mask.checked;
+          if (!current() || !await viewer.replace(await response.arrayBuffer(), current)) return;
           placedEtag = modelEtag = revision;
+          renderedMask = masked;
           labels.model(viewer,modelEtag);
         }
         if (show3d) status.textContent = "Ready";
@@ -272,15 +283,15 @@
   view.addEventListener("lostpointercapture", () => { pointer = null; });
   async function refresh() {
     try {
-      const layers = layerKey();
-      const headers = etag && layers === renderedLayers ? {"If-None-Match":etag} : {};
-      const response = await fetch(`/frame.svg?layers=${encodeURIComponent(layers)}`, {headers});
+      const settings = plotKey();
+      const headers = etag && settings === renderedPlot ? {"If-None-Match":etag} : {};
+      const response = await fetch(`/frame.svg?${settings}`, {headers});
       if (response.status !== 304) {
         if (!response.ok) throw new Error("Waiting for board");
         const blob = await response.blob();
         const plot = new DOMParser().parseFromString(await blob.text(), "image/svg+xml").documentElement;
         const viewBox = plot.getAttribute("viewBox");
-        if (layers !== layerKey()) return;
+        if (settings !== plotKey()) return;
         const next = URL.createObjectURL(blob);
         const image = new Image();
         image.src = next;
@@ -288,12 +299,12 @@
         flat.style.setProperty("--aspect", image.naturalWidth / image.naturalHeight);
         plotWidth = Number(viewBox.trim().split(/\s+/)[2]);
         board.src = next;
-        animatePlot(plot, !show3d && layers === renderedLayers);
+        animatePlot(plot, !show3d && settings === renderedPlot);
         flat.hidden = show3d;
         if (url) URL.revokeObjectURL(url);
         url = next;
         etag = response.headers.get("ETag") || "";
-        renderedLayers = layers;
+        renderedPlot = settings;
         labels.frame(etag,viewBox);
         updateGrid();
       }

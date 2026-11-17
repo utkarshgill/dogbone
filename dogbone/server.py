@@ -18,7 +18,7 @@ from starlette.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from .kicad import Connector, make_server
-from .footprint import footprint_for_plot
+from .footprint import footprint_for_plot, without_zone_fills
 
 
 WEB = Path(__file__).resolve().parent / "web"
@@ -30,7 +30,7 @@ EXPORTS = {
         "--fit-page-to-board", "--exclude-drawing-sheet",
     )),
     "glb": ("model/gltf-binary", 45, (
-        "--force", "--include-soldermask", "--include-silkscreen", "--include-pads",
+        "--force", "--include-silkscreen", "--include-pads", "--include-tracks",
     )),
 }
 
@@ -95,28 +95,33 @@ class Preview:
                         "--output", str(folder), str(library)], check=True, capture_output=True, timeout=8)
         return (folder / "preview.svg").read_bytes()
 
-    def export(self, kind, layers):
+    def export(self, kind, layers, pours=True, mask=True):
         # Deduplicate concurrent viewers. SVG and GLB export independently.
         with self.locks[kind]:
             revision, document = self.snapshot
+            key = (revision, layers, pours, mask)
             cached = self.cache.get(kind)
-            if cached and cached[:2] == (revision, layers):
-                return revision, cached[2]
+            if cached and cached[0] == key:
+                return revision, cached[1]
 
             folder = Path(self.temp.name)
             source, output = folder / f"{kind}.kicad_pcb", folder / f"board.{kind}"
             if kind == "glb":
                 document = document.replace(b'${KIPRJMOD}', self.model_root)
+            elif not pours:
+                document = without_zone_fills(document)
             source.write_bytes(document)
             _, timeout, options = EXPORTS[kind]
             if kind == "svg":
                 options = ("--layers", ",".join(layers), *options)
+            elif mask:
+                options = (*options, "--include-soldermask")
             subprocess.run(
                 [CLI, "pcb", "export", kind, *options, "--output", str(output), str(source)],
                 check=True, capture_output=True, timeout=timeout,
             )
             data = output.read_bytes()
-            self.cache[kind] = revision, layers, data
+            self.cache[kind] = key, data
             return revision, data
 
 
@@ -191,7 +196,9 @@ def create_app(board_path, socket, replay_path=None):
         if etag == f'"{revision}"':
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
         try:
-            revision, data = await run_in_threadpool(preview.export, kind, layers)
+            pours = kind != "svg" or request.query_params.get("pours") != "0"
+            mask = kind != "glb" or request.query_params.get("mask") != "0"
+            revision, data = await run_in_threadpool(preview.export, kind, layers, pours, mask)
         except (subprocess.SubprocessError, OSError) as error:
             print(f"KiCad {kind} export failed: {error}", flush=True)
             return Response("KiCad export failed", status_code=503)
