@@ -151,7 +151,7 @@ export function createLabels(canvas, onParts) {
       populate();
       onParts(previous, data);
     } catch {
-      detail.textContent = "Part labels need the board open in KiCad.";
+      detail.textContent = "Part labels unavailable.";
     } finally {
       pending = false;
       if (frame !== request) refresh();

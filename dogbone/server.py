@@ -6,10 +6,12 @@ import json
 from pathlib import Path
 from shutil import which
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 from threading import Lock
 
 import uvicorn
+from kipy.errors import ApiError, ConnectionError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import FileResponse, Response
@@ -35,17 +37,48 @@ EXPORTS = {
 
 class Preview:
     def __init__(self, board_path):
+        self.board_path = board_path
+        self.disk_stamp = board_path.stat().st_mtime_ns
         document = board_path.read_bytes()
         self.snapshot = sha256(document).hexdigest(), document
+        self.disk_revision = self.snapshot[0]
+        self.snapshot_lock = Lock()
         self.model_root = json.dumps(str(board_path.parent), ensure_ascii=False)[1:-1].encode()
         self.temp = TemporaryDirectory(prefix="dogbone-")
         self.cache = {}
         self.locks = {kind: Lock() for kind in EXPORTS}
         self.footprint_lock = Lock()
         self.plot_footprint = lru_cache(maxsize=32)(self._plot_footprint)
+        self.saved_parts = lru_cache(maxsize=2)(self._saved_parts)
 
     def publish(self, revision, document):
-        self.snapshot = revision, document
+        with self.snapshot_lock:
+            self.snapshot = revision, document
+
+    def refresh_file(self):
+        with self.snapshot_lock:
+            try:
+                stamp = self.board_path.stat().st_mtime_ns
+                if stamp == self.disk_stamp:
+                    return
+                document = self.board_path.read_bytes()
+            except OSError:
+                return
+            revision = sha256(document).hexdigest()
+            if self.snapshot[0] == self.disk_revision:
+                self.snapshot = revision, document
+            self.disk_stamp, self.disk_revision = stamp, revision
+
+    def _saved_parts(self, revision, document):
+        cli = Path(CLI).resolve()
+        bundled = cli.parent.parent / "Frameworks/Python.framework/Versions/Current/bin/python3"
+        python = next((p for p in (bundled, cli.with_name("python3")) if p.is_file()), sys.executable)
+        with TemporaryDirectory(dir=self.temp.name) as folder:
+            path = Path(folder) / "snapshot.kicad_pcb"
+            path.write_bytes(document)
+            result = subprocess.run([str(python), str(Path(__file__).with_name("saved_parts.py")), str(path)],
+                                    check=True, capture_output=True, timeout=8)
+        return {**json.loads(result.stdout), "revision": revision}
 
     def selected_footprint(self, reference):
         footprint = footprint_for_plot(self.snapshot[1], reference)
@@ -96,8 +129,12 @@ def create_app(board_path, socket, replay_path=None):
     labels_path = connector.path.with_suffix(".labels.json")
 
     def read_labels():
-        with connector.lock:
-            result = connector.part_labels()
+        try:
+            with connector.lock:
+                result = connector.part_labels()
+        except (ApiError, ConnectionError, ValueError):
+            result = preview.saved_parts(*preview.snapshot)
+            result = {**result, "parts": [dict(part) for part in result["parts"]]}
         if labels_path.is_file():
             labels = json.loads(labels_path.read_text())
             for part in result["parts"]:
@@ -148,6 +185,7 @@ def create_app(board_path, socket, replay_path=None):
             layers = tuple(request.query_params["layers"].split(","))
             if len(layers) != len(set(layers)) or not set(layers) <= set(BOARD_LAYERS):
                 return Response("Unknown board layer", status_code=400)
+        await run_in_threadpool(preview.refresh_file)
         revision, _ = preview.snapshot
         etag = request.headers.get("If-None-Match")
         if etag == f'"{revision}"':
