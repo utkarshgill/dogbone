@@ -1,8 +1,4 @@
-const mix = (a, b, t) => a + (b - a) * t;
-const ease = t => {
-  t = Math.max(0, Math.min(1, t));
-  return t * t * (3 - 2 * t);
-};
+import {animate, angleBetween, ease, mix} from "./motion.js";
 
 function artwork([pads, strokes]) {
   const copper = new Path2D(), drills = new Path2D();
@@ -29,12 +25,16 @@ export async function openReplay(dialog) {
   const shapes = geometry.map(artwork);
   const canvas = dialog.querySelector("canvas"), ctx = canvas.getContext("2d");
   const play = dialog.querySelector("[data-play]");
+  const previous = dialog.querySelector("[data-prev]");
+  const next = dialog.querySelector("[data-next]");
   const scrub = dialog.querySelector("input");
   const caption = dialog.querySelector("output");
   const base = 1.2, span = 4, tail = 1.4;
   const duration = base + span * (stages.length - 1) + tail;
   scrub.max = duration;
-  let time = 0, request = 0, started = 0;
+  const stops = stages.map((_, i) => i ? base + span * i : 0);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let time = 0, cancel;
 
   function paint() {
     const stage = Math.max(0, Math.min(stages.length - 2, Math.floor((time - base) / span)));
@@ -42,7 +42,7 @@ export async function openReplay(dialog) {
     const [name, commit, firstCenter, firstOutline] = stages[stage];
     const [nextName, nextCommit, nextCenter, nextOutline] = stages[stage + 1];
     const transition = ease(elapsed);
-    const label = elapsed >= 0 ? nextName + " · " + nextCommit : name + " · " + commit;
+    const label = elapsed > .01 ? nextName + " · " + nextCommit : name + " · " + commit;
     if (caption.value !== label) caption.value = label;
 
     const w = canvas.clientWidth, h = canvas.clientHeight, density = Math.min(devicePixelRatio, 2);
@@ -91,11 +91,10 @@ export async function openReplay(dialog) {
       const delay = stage === 0 ? (ref === "U3" ? 0 : (group + 1) * .032) :
         stage === 1 && group >= 4 ? (group - 4) * .065 : 0;
       const t = ease((elapsed - delay) / .68);
-      const turn = ((to[2] - from[2] + 540) % 360) - 180;
       const {copper, drills, silk} = shapes[shape];
       ctx.save();
       ctx.translate(mix(from[0], to[0], t), mix(from[1], to[1], t));
-      ctx.rotate(-mix(from[2], from[2] + turn, t) * Math.PI / 180);
+      ctx.rotate(-angleBetween(from[2], to[2], t) * Math.PI / 180);
       ctx.strokeStyle = "#b4c6a7";
       ctx.lineWidth = 0.11;
       ctx.stroke(silk);
@@ -108,28 +107,34 @@ export async function openReplay(dialog) {
   }
 
   function pause() {
-    cancelAnimationFrame(request);
-    request = 0;
+    cancel?.();
+    cancel = null;
     play.textContent = time >= duration ? "Replay" : "Play";
   }
-  function tick(now) {
-    time = Math.min(duration, (now - started) / 1000);
+  function seek(seconds) {
+    time = seconds;
     scrub.value = time;
+    previous.disabled = time <= .02;
+    next.disabled = time >= stops.at(-1) - .02;
     paint();
-    if (time < duration) request = requestAnimationFrame(tick);
-    else pause();
   }
   function start() {
-    if (time >= duration) time = 0;
-    started = performance.now() - time * 1000;
+    const from = time >= duration ? 0 : time;
     play.textContent = "Pause";
-    request = requestAnimationFrame(tick);
+    cancel = animate(1000 * (duration - from), p => seek(mix(from, duration, p)), pause);
   }
-  play.onclick = () => request ? pause() : start();
-  scrub.oninput = () => {
-    time = scrub.valueAsNumber;
+  function step(to) {
+    if (to === undefined) return;
     pause();
-    paint();
+    const from = time;
+    cancel = animate(850, p => seek(mix(from, to, p)), pause, reduced);
+  }
+  play.onclick = () => cancel ? pause() : start();
+  previous.onclick = () => step(stops.findLast(stop => stop < time - .02));
+  next.onclick = () => step(stops.find(stop => stop > time + .02));
+  scrub.oninput = () => {
+    pause();
+    seek(scrub.valueAsNumber);
   };
   const resize = new ResizeObserver(paint);
   dialog.addEventListener("close", () => {
@@ -137,10 +142,9 @@ export async function openReplay(dialog) {
     resize.disconnect();
   }, {once: true});
   dialog.querySelector("#replay-title").textContent = "Placement replay";
-  scrub.value = 0;
   play.textContent = "Play";
   dialog.showModal();
   resize.observe(canvas);
-  paint();
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) start();
+  seek(0);
+  if (!reduced) start();
 }
