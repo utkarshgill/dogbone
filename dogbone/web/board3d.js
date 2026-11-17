@@ -61,6 +61,9 @@ export function createBoardView(canvas) {
 
   const orbit = new THREE.Spherical(.25, .67, .24);
   let model, distance = .25, radius = .06;
+  let modelBounds = new Map();
+  let afterDraw = () => {};
+  const raycast = new THREE.Raycaster();
 
   function draw() {
     if (canvas.hidden) return;
@@ -71,6 +74,7 @@ export function createBoardView(canvas) {
     camera.position.setFromSpherical(orbit);
     camera.lookAt(0, 0, 0);
     renderer.render(scene, camera);
+    afterDraw();
   }
 
   function fit() {
@@ -103,10 +107,18 @@ export function createBoardView(canvas) {
 
   async function replace(data) {
     const {scene: source} = await new GLTFLoader().parseAsync(data, "");
+    modelBounds = new Map();
+    source.updateMatrixWorld(true);
+    source.traverse(node => {
+      if (!/^[A-Za-z]+\d+[A-Za-z0-9_-]*$/.test(node.name)) return;
+      const box = new THREE.Box3().setFromObject(node);
+      if (!box.isEmpty()) modelBounds.set(node.name, box);
+    });
     const next = batchStaticModel(source);
     const bounds = new THREE.Box3().setFromObject(next);
     const center = bounds.getCenter(new THREE.Vector3());
     next.position.sub(center);
+    for (const box of modelBounds.values()) box.translate(next.position);
     radius = bounds.getBoundingSphere(new THREE.Sphere()).radius;
     const first = !model;
     if (model) {
@@ -122,5 +134,50 @@ export function createBoardView(canvas) {
     else draw();
   }
 
-  return {fit, draw, replace};
+  function bounds(part) {
+    if (modelBounds.has(part.ref)) return modelBounds.get(part.ref);
+    // Some footprints, such as mounting holes, have no STEP model.
+    const [x,y,w,h] = part.bounds.map(mm => mm / 1000);
+    return new THREE.Box3(
+      new THREE.Vector3(x, .0014, y),
+      new THREE.Vector3(x+w, .0018, y+h),
+    ).translate(model.position);
+  }
+
+  function pick(clientX, clientY, parts) {
+    if (!model || canvas.hidden) return null;
+    const rect = canvas.getBoundingClientRect();
+    raycast.setFromCamera(new THREE.Vector2(
+      2*(clientX-rect.left)/rect.width-1, 1-2*(clientY-rect.top)/rect.height,
+    ), camera);
+    let nearest = Infinity, selected = null;
+    const point = new THREE.Vector3();
+    for (const part of parts) {
+      if (!raycast.ray.intersectBox(bounds(part), point)) continue;
+      const distance = point.distanceToSquared(raycast.ray.origin);
+      if (distance < nearest) {
+        nearest = distance;
+        selected = part;
+      }
+    }
+    return selected;
+  }
+
+  function locate(part) {
+    if (!model) return null;
+    const box = bounds(part);
+    const screen = new THREE.Box2();
+    for (const x of [box.min.x, box.max.x]) {
+      for (const y of [box.min.y, box.max.y]) {
+        for (const z of [box.min.z, box.max.z]) {
+          const point = new THREE.Vector3(x,y,z).project(camera);
+          if (point.z < -1 || point.z > 1) return null;
+          screen.expandByPoint(new THREE.Vector2((point.x+1)*50,(1-point.y)*50));
+        }
+      }
+    }
+    return [screen.min.x, screen.min.y, screen.max.x-screen.min.x, screen.max.y-screen.min.y];
+  }
+
+  return {fit, draw, replace, pick, locate, onDraw: callback => { afterDraw = callback; }};
 }

@@ -5,7 +5,8 @@
 <title>dogbone</title>
 <style>
   :root { color-scheme: dark; font: 14px system-ui; background: #000; color: #ededed; }
-  body { margin: 0; height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
+  body { margin: 0; height: 100dvh; display: grid; grid-template-rows: auto minmax(0,1fr); }
+  [hidden] { display: none !important; }
   header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #242424; }
   header strong { margin-right: auto; }
   #status { color: #a3a3a3; font-size: 12px; }
@@ -14,7 +15,40 @@
   button[aria-pressed="true"] { border-color: #9a9a9a; background: #242424; }
   #three { position: absolute; inset: 0; width: 100%; height: 100%; }
   main:active { cursor: grabbing; }
-  img { width: min(93cqw, calc(93cqh * var(--aspect, 1))); height: auto; user-select: none; }
+  #flat { position: relative; width: min(93cqw, calc(93cqh * var(--aspect, 1))); }
+  img { display: block; width: 100%; height: auto; user-select: none; }
+  #labels { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .part-target { fill: transparent; pointer-events: all; cursor: crosshair; }
+  .part-outline { stroke: #f2cb74; fill: #f2cb7430; vector-effect: non-scaling-stroke; stroke-width: 2px; }
+  .part-caption { font-size: 2px; fill: #f2cb74; stroke: #000; stroke-width: .35px; paint-order: stroke; }
+  #model-mark { position: absolute; pointer-events: none; border: 1px solid #f2cb74; box-sizing: border-box; }
+  #model-label { position: absolute; left: -1px; top: -1px; transform: translateY(-100%); color: #f2cb74; background: #000; padding: 2px 5px; }
+  #part-picker { width: calc(100% - 14px); margin: 7px; box-sizing: border-box; padding: 4px; background: #000; color: inherit; border: 1px solid #3e3e3e; border-radius: 4px; }
+  #workspace { display: grid; grid-template-columns: 170px minmax(0,1fr) 210px; min-height: 0; }
+  #left-pane, #properties { min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; }
+  #left-pane { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #242424; }
+  #properties { border-left: 1px solid #242424; padding: 12px; }
+  #left-pane nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 7px; border-bottom: 1px solid #242424; }
+  #left-pane nav button { padding-inline: 5px; font-size: 12px; }
+  #layers { display: grid; gap: 8px; padding: 12px; }
+  #layers label { display: flex; gap: 5px; align-items: center; }
+  #component-panel { display: flex; flex-direction: column; min-height: 0; }
+  #components { overflow: auto; padding: 4px 6px; }
+  #components details { margin-block: 4px; }
+  #components summary { padding: 4px 2px; color: #ccc; cursor: pointer; }
+  #components .component { width: 100%; display: block; text-align: left; border: 0; padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  #properties h2, #properties p { margin: 0 0 10px; }
+  #properties h2 { font-size: 14px; }
+  #part-detail, #properties dd { color: #ccc; overflow-wrap: anywhere; }
+  #properties dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 7px; }
+  #properties dt { color: #aaa; }
+  #properties dd { margin: 0; }
+  @media(max-width: 730px) {
+    header { flex-wrap: wrap; gap: 6px; padding-inline: 8px; }
+    #status { display:none; }
+    #workspace { grid-template-columns: 120px minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto; }
+    #properties { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #242424; max-height: 29dvh; }
+  }
 </style>
 <header>
   <strong>dogbone</strong>
@@ -23,25 +57,77 @@
     <button id="board-view" type="button" aria-pressed="true">Board</button>
     <button id="model-view" type="button" aria-pressed="false">3D</button>
   </div>
+  <button id="labels-toggle" type="button" aria-pressed="false">Labels</button>
   <button id="fit" type="button" title="Fit the whole board in view">Fit</button>
 </header>
-<main><img alt="KiCad board preview" draggable="false" hidden><canvas id="three" aria-label="3D KiCad board" hidden></canvas></main>
+<div id="workspace">
+  <aside id="left-pane" aria-label="Board navigator">
+    <nav aria-label="Board navigator view">
+      <button id="components-view" type="button" aria-pressed="true">Components</button>
+      <button id="layers-view" type="button" aria-pressed="false">Layers</button>
+    </nav>
+    <div id="component-panel">
+      <select id="part-picker" aria-label="Board part"><option value="">Select a part</option></select>
+      <div id="components" aria-label="Components"></div>
+    </div>
+    <div id="layers" hidden>
+      <label><input type="checkbox" data-layer="F.Cu" checked> Front copper</label>
+      <label><input type="checkbox" data-layer="B.Cu" checked> Back copper</label>
+      <label><input type="checkbox" data-layer="F.Silkscreen" checked> Silkscreen</label>
+      <label><input type="checkbox" data-layer="Edge.Cuts" checked> Board outline</label>
+    </div>
+  </aside>
+  <main>
+    <div id="flat" hidden>
+      <img alt="KiCad board preview" draggable="false">
+      <svg id="labels" aria-hidden="true" hidden></svg>
+    </div>
+    <canvas id="three" aria-label="3D KiCad board" hidden></canvas>
+    <div id="model-mark" aria-hidden="true" hidden><span id="model-label"></span></div>
+  </main>
+  <aside id="properties" aria-label="Properties">
+    <h2>Properties</h2>
+    <p id="part-detail" aria-live="polite">Select a part.</p>
+    <dl id="part-fields" hidden></dl>
+  </aside>
+</div>
 <script type="importmap">{"imports":{"three":"/preview-assets/vendor/three.module.js"}}</script>
-<script>
+<script type="module">
+  import {createLabels} from "/preview-assets/labels.js";
   const view = document.querySelector("main");
   const board = document.querySelector("img");
+  const flat = document.querySelector("#flat");
   const status = document.querySelector("#status");
   const canvas = document.querySelector("#three");
   const boardButton = document.querySelector("#board-view");
   const modelButton = document.querySelector("#model-view");
+  const labels = createLabels(canvas);
+  const componentTab = document.querySelector("#components-view");
+  const layerTab = document.querySelector("#layers-view");
+  const layerInputs = [...document.querySelectorAll("[data-layer]")];
+  const layerKey = () => layerInputs.filter(input => input.checked).map(input => input.dataset.layer).join(",");
+  let renderedLayers = "";
+  function navigator(showLayers) {
+    componentTab.setAttribute("aria-pressed",!showLayers);
+    layerTab.setAttribute("aria-pressed",showLayers);
+    document.querySelector("#component-panel").hidden = showLayers;
+    document.querySelector("#layers").hidden = !showLayers;
+  }
+  componentTab.onclick = () => navigator(false);
+  layerTab.onclick = () => navigator(true);
+  for (const input of layerInputs) {
+    input.onchange = () => { if (!layerKey()) input.checked = true; };
+  }
   let etag = "", url = "", scale = 1, x = 0, y = 0, pointer = null;
   let show3d = new URLSearchParams(location.search).get("view") === "3d";
   let viewer, viewerTask, modelEtag = "", modelTask, nextModelRetry = 0;
   function displayMode() {
     boardButton.setAttribute("aria-pressed", !show3d);
     modelButton.setAttribute("aria-pressed", show3d);
-    board.hidden = show3d || !url;
+    flat.hidden = show3d || !url;
     canvas.hidden = !show3d;
+    labels.view(show3d);
+    layerInputs.forEach(input => { input.disabled = show3d; });
     if (show3d) {
       viewer?.draw();
       updateModel();
@@ -75,6 +161,7 @@
           if (!response.ok) throw new Error("3D export failed");
           await viewer.replace(await response.arrayBuffer());
           modelEtag = response.headers.get("ETag") || "";
+          labels.model(viewer,modelEtag);
         }
         if (show3d) status.textContent = "Ready";
       } catch {
@@ -86,7 +173,7 @@
     })();
   }
 
-  const transform = () => { board.style.transform = `translate(${x}px,${y}px) scale(${scale})`; };
+  const transform = () => { flat.style.transform = `translate(${x}px,${y}px) scale(${scale})`; };
   document.querySelector("#fit").onclick = () => {
     if (show3d) viewer?.fit();
     else { scale = 1; x = y = 0; transform(); }
@@ -98,7 +185,7 @@
     transform();
   }, {passive:false});
   view.addEventListener("pointerdown", event => {
-    if (show3d) return;
+    if (show3d || event.target.dataset.ref) return;
     pointer = event.pointerId;
     view.setPointerCapture(pointer);
   });
@@ -109,19 +196,25 @@
   view.addEventListener("lostpointercapture", () => { pointer = null; });
   async function refresh() {
     try {
-      const response = await fetch("/frame.svg", {headers: etag ? {"If-None-Match": etag} : {}});
+      const layers = layerKey();
+      const headers = etag && layers === renderedLayers ? {"If-None-Match":etag} : {};
+      const response = await fetch(`/frame.svg?layers=${encodeURIComponent(layers)}`, {headers});
       if (response.status !== 304) {
         if (!response.ok) throw new Error("Waiting for board");
-        const next = URL.createObjectURL(await response.blob());
+        const blob = await response.blob();
+        if (layers !== layerKey()) return;
+        const next = URL.createObjectURL(blob);
         const image = new Image();
         image.src = next;
         await image.decode();
-        board.style.setProperty("--aspect", image.naturalWidth / image.naturalHeight);
+        flat.style.setProperty("--aspect", image.naturalWidth / image.naturalHeight);
         board.src = next;
-        board.hidden = show3d;
+        flat.hidden = show3d;
         if (url) URL.revokeObjectURL(url);
         url = next;
         etag = response.headers.get("ETag") || "";
+        renderedLayers = layers;
+        labels.frame(etag,blob);
       }
       if (show3d) updateModel();
       else status.textContent = "Ready";
