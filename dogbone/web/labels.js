@@ -100,7 +100,11 @@ export function createLabels(canvas) {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "component";
-      row.textContent = `${part.ref} · ${part.name || part.value}`;
+      const ref = document.createElement("span");
+      const name = document.createElement("span");
+      ref.textContent = part.ref;
+      name.textContent = part.name || part.value;
+      row.append(ref,name);
       row.setAttribute("aria-pressed","false");
       row.onclick = () => select(part);
       sections.get(group).append(row);
