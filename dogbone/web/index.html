@@ -50,6 +50,13 @@
   #properties dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 7px; }
   #properties dt { color: #aaa; }
   #properties dd { margin: 0; }
+  #replay { width: min(880px, 90vw); padding: 12px; border: 1px solid #414843; background: #080d0b; color: inherit; }
+  #replay::backdrop { background: #000b; }
+  #replay canvas { display: block; width: 100%; height: min(67dvh, 72vw); margin: 8px 0; background: #0e1513; }
+  #replay form, #replay-controls { display: flex; align-items: center; gap: 10px; }
+  #replay form { justify-content: space-between; }
+  #replay input { flex: 1; min-width: 0; accent-color: #aceabd; }
+  #replay output { font-size: 12px; color: #a7b8ad; }
   @media(max-width: 730px) {
     header { flex-wrap: wrap; gap: 6px; padding-inline: 8px; }
     #status { display:none; }
@@ -64,6 +71,7 @@
     <button id="board-view" type="button" aria-pressed="true">Board</button>
     <button id="model-view" type="button" aria-pressed="false">3D</button>
   </div>
+  <button id="open-replay" type="button" hidden>Replay</button>
   <button id="fit" type="button" title="Fit the whole board in view">Fit</button>
 </header>
 <div id="workspace">
@@ -96,9 +104,30 @@
     <dl id="part-fields" hidden></dl>
   </aside>
 </div>
+<dialog id="replay" aria-labelledby="replay-title">
+  <form method="dialog"><strong id="replay-title">Placement replay</strong><button type="submit">Close</button></form>
+  <canvas aria-label="Animated footprint placements"></canvas>
+  <div id="replay-controls">
+    <button type="button" data-play>Play</button>
+    <input type="range" min="0" step="0.01" value="0" aria-label="Replay position">
+    <output></output>
+  </div>
+</dialog>
 <script type="importmap">{"imports":{"three":"/preview-assets/vendor/three.module.js"}}</script>
 <script type="module">
   import {createLabels} from "/preview-assets/labels.js";
+  const replayButton = document.querySelector("#open-replay");
+  fetch("/replay.json", {method: "HEAD"}).then(response => { replayButton.hidden = response.status !== 200; }).catch(() => {});
+  replayButton.onclick = async () => {
+    replayButton.disabled = true;
+    try {
+      const {openReplay} = await import("/preview-assets/replay.js");
+      await openReplay(document.querySelector("#replay"));
+    } catch {
+      document.querySelector("#replay-title").textContent = "Replay unavailable";
+      document.querySelector("#replay").showModal();
+    } finally { replayButton.disabled = false; }
+  };
   const view = document.querySelector("main");
   const board = document.querySelector("img");
   const flat = document.querySelector("#flat");

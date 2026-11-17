@@ -68,7 +68,7 @@ class Preview:
             return revision, data
 
 
-def create_app(board_path, socket):
+def create_app(board_path, socket, replay_path=None):
     preview = Preview(board_path.resolve(strict=True))
     connector = Connector(board_path, socket, on_snapshot=preview.publish)
     server = make_server(connector)
@@ -91,6 +91,12 @@ def create_app(board_path, socket):
     @server.custom_route("/", methods=["GET"])
     async def page(_request):
         return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-store"})
+
+    @server.custom_route("/replay.json", methods=["GET", "HEAD"])
+    async def replay(_request):
+        if replay_path is None:
+            return Response(status_code=204)
+        return FileResponse(replay_path, media_type="application/json")
 
     @server.custom_route("/parts.json", methods=["GET"])
     async def parts(_request):
@@ -130,10 +136,13 @@ def create_app(board_path, socket):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board", required=True, type=Path)
+    parser.add_argument("--replay", type=Path, help="Saved placement replay to show in the viewer")
     parser.add_argument("--socket", default="ipc:///tmp/kicad/api.sock")
     parser.add_argument("--port", default=4083, type=int)
     args = parser.parse_args()
-    uvicorn.run(create_app(args.board, args.socket), host="127.0.0.1", port=args.port, access_log=False)
+    if args.replay is not None and not args.replay.is_file():
+        parser.error("--replay must name a file")
+    uvicorn.run(create_app(args.board, args.socket, args.replay), host="127.0.0.1", port=args.port, access_log=False)
 
 
 if __name__ == "__main__":
