@@ -9,6 +9,7 @@ from threading import RLock
 from time import monotonic, sleep
 
 from kipy import KiCad
+from kipy.board_types import BoardLayer
 from kipy.geometry import Vector2
 from kipy.proto.common.types import DocumentType
 from mcp.server.fastmcp import FastMCP
@@ -92,6 +93,32 @@ class Connector:
         revision = self.revision(board)
         parts = self.parts(board)
         return {"revision": revision, "parts": [self.describe(parts[ref]) for ref in references]}
+
+    def part_labels(self):
+        board = self.board()
+        revision = self.revision(board)
+        parts = self.parts(board)
+        bounds = board.get_item_bounding_box(list(parts.values()), include_text=False)
+        result = []
+        for (ref, part), box in zip(parts.items(), bounds, strict=True):
+            if box is None:
+                continue
+            nets = {pad.net.name for pad in part.definition.pads}
+            result.append({
+                "ref": ref,
+                "value": part.value_field.text.value,
+                "position": [part.position.x / 1e6, part.position.y / 1e6],
+                "angle": part.orientation.degrees % 360,
+                "bounds": [box.pos.x / 1e6, box.pos.y / 1e6, box.size.x / 1e6, box.size.y / 1e6],
+                "nets": sorted(net.replace("{slash}", "/") for net in nets
+                               if net and not net.startswith("unconnected-")),
+            })
+        outline = [item for item in board.get_shapes() if item.layer == BoardLayer.BL_Edge_Cuts]
+        extents = board.get_item_bounding_box(outline, include_text=False) if outline else bounds
+        occupied = [box for box in extents if box is not None]
+        origin = [min((getattr(box.pos, axis) for box in occupied), default=0) / 1e6
+                  for axis in ("x", "y")]
+        return {"revision": revision, "origin": origin, "parts": result}
 
     def move(self, placements, expected_revision, label):
         if not 1 <= len(placements) <= 16:
