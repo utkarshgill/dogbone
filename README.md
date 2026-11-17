@@ -1,6 +1,7 @@
-# dogbone
+# DOGBONE
 
-move parts in kicad with the agent you already use. watch in the browser.
+move parts in kicad from Codex or Claude Code. watch it happen in your browser.
+dogbone runs on localhost. no dogbone signup.
 
 <p>
   <img src="docs/board.jpg" alt="2D board view" width="49%">
@@ -18,4 +19,11 @@ python3 -m venv .venv
 .venv/bin/python -m dogbone --board examples/pcbgolf/work/pcbgolf.kicad_pcb
 ```
 
-open [the viewer](http://localhost:4083/). add `http://127.0.0.1:4083/mcp` to your agent as a streamable http server.
+open [the viewer](http://localhost:4083/). in another terminal, pick one.
+
+```sh
+codex mcp add dogbone --url http://127.0.0.1:4083/mcp
+claude mcp add --transport http dogbone http://127.0.0.1:4083/mcp
+```
+
+start your agent in this folder. try `Move SW1 2 mm left with dogbone.` then `Undo it.`
