@@ -132,11 +132,8 @@ export function createLabels(canvas) {
       if (!response.ok) throw new Error("Could not read footprints");
       const result = await response.json();
       if (`"${result.revision}"` !== frame.etag) return;
-      const current = frame;
-      const parsed = new DOMParser().parseFromString(await current.blob.text(), "image/svg+xml");
-      if (current !== frame) return;
       data = result;
-      const box = parsed.documentElement.getAttribute("viewBox");
+      const box = frame.viewBox;
       viewBox = box.trim().split(/\s+/).map(Number);
       overlay.setAttribute("viewBox",box);
       populate();
@@ -173,9 +170,9 @@ export function createLabels(canvas) {
   });
   return {
     view: mode => { is3d = mode; show(); },
-    frame: (etag,blob) => {
+    frame: (etag,viewBox) => {
       if (frame?.etag === etag) return;
-      frame = {etag,blob};
+      frame = {etag,viewBox};
       targets.replaceChildren();
       highlight();
       refresh();

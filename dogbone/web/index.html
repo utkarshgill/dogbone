@@ -15,6 +15,8 @@
   button[aria-pressed="true"] { border-color: #9a9a9a; background: #242424; }
   #three { position: absolute; inset: 0; width: 100%; height: 100%; }
   main:active { cursor: grabbing; }
+  #grid { position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(circle at 1px 1px, #45494b .8px, transparent 1.1px); }
+  #grid-pitch { position: absolute; bottom: 8px; right: 10px; padding: 2px 4px; color: #a3a3a3; background: #000; font-size: 11px; pointer-events: none; }
   #flat { position: relative; width: min(93cqw, calc(93cqh * var(--aspect, 1))); background: #172623; }
   img { display: block; width: 100%; height: auto; user-select: none; }
   #labels { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -78,12 +80,14 @@
     </div>
   </aside>
   <main>
+    <div id="grid" aria-hidden="true" hidden></div>
     <div id="flat" hidden>
       <img alt="KiCad board preview" draggable="false">
       <svg id="labels" aria-hidden="true" hidden></svg>
     </div>
     <canvas id="three" aria-label="3D KiCad board" hidden></canvas>
     <div id="model-mark" aria-hidden="true" hidden><span id="model-label"></span></div>
+    <span id="grid-pitch" hidden></span>
   </main>
   <aside id="properties" aria-label="Properties">
     <h2>Properties</h2>
@@ -97,6 +101,8 @@
   const view = document.querySelector("main");
   const board = document.querySelector("img");
   const flat = document.querySelector("#flat");
+  const grid = document.querySelector("#grid");
+  const gridPitch = document.querySelector("#grid-pitch");
   const status = document.querySelector("#status");
   const canvas = document.querySelector("#three");
   const boardButton = document.querySelector("#board-view");
@@ -107,6 +113,7 @@
   const layerInputs = [...document.querySelectorAll("[data-layer]")];
   const layerKey = () => layerInputs.filter(input => input.checked).map(input => input.dataset.layer).join(",");
   let renderedLayers = "";
+  let plotWidth = 0;
   function navigator(showLayers) {
     componentTab.setAttribute("aria-pressed",!showLayers);
     layerTab.setAttribute("aria-pressed",showLayers);
@@ -126,6 +133,7 @@
     modelButton.setAttribute("aria-pressed", show3d);
     flat.hidden = show3d || !url;
     canvas.hidden = !show3d;
+    updateGrid();
     labels.view(show3d);
     layerInputs.forEach(input => { input.disabled = show3d; });
     if (show3d) {
@@ -173,7 +181,23 @@
     })();
   }
 
-  const transform = () => { flat.style.transform = `translate(${x}px,${y}px) scale(${scale})`; };
+  function updateGrid() {
+    grid.hidden = gridPitch.hidden = flat.hidden || !plotWidth;
+    if (grid.hidden) return;
+    const bounds = flat.getBoundingClientRect();
+    const canvas = view.getBoundingClientRect();
+    const pixelsPerMm = bounds.width / plotWidth;
+    const pitch = [.1, .2, .5, 1, 2, 5, 10, 20, 50, 100].find(mm => mm * pixelsPerMm >= 9) || 100;
+    const pixels = pitch * pixelsPerMm;
+    grid.style.backgroundSize = `${pixels}px ${pixels}px`;
+    grid.style.backgroundPosition = `${bounds.left-canvas.left-1}px ${bounds.top-canvas.top-1}px`;
+    gridPitch.textContent = `${pitch} mm grid`;
+  }
+  new ResizeObserver(updateGrid).observe(view);
+  const transform = () => {
+    flat.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
+    updateGrid();
+  };
   document.querySelector("#fit").onclick = () => {
     if (show3d) viewer?.fit();
     else { scale = 1; x = y = 0; transform(); }
@@ -202,19 +226,23 @@
       if (response.status !== 304) {
         if (!response.ok) throw new Error("Waiting for board");
         const blob = await response.blob();
+        const plot = new DOMParser().parseFromString(await blob.text(), "image/svg+xml").documentElement;
+        const viewBox = plot.getAttribute("viewBox");
         if (layers !== layerKey()) return;
         const next = URL.createObjectURL(blob);
         const image = new Image();
         image.src = next;
         await image.decode();
         flat.style.setProperty("--aspect", image.naturalWidth / image.naturalHeight);
+        plotWidth = Number(viewBox.trim().split(/\s+/)[2]);
         board.src = next;
         flat.hidden = show3d;
         if (url) URL.revokeObjectURL(url);
         url = next;
         etag = response.headers.get("ETag") || "";
         renderedLayers = layers;
-        labels.frame(etag,blob);
+        labels.frame(etag,viewBox);
+        updateGrid();
       }
       if (show3d) updateModel();
       else status.textContent = "Ready";
