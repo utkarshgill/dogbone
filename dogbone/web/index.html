@@ -4,7 +4,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>dogbone</title>
 <style>
-  :root { color-scheme: dark; font: 14px system-ui; background: #000; color: #ededed; }
+  @font-face {
+    font-family: "Monaspace Neon";
+    src: url("/preview-assets/fonts/MonaspaceNeon-Regular.woff2") format("woff2");
+    font-display: swap;
+  }
+  :root { color-scheme: dark; font: 14px "Monaspace Neon", ui-monospace, monospace; font-feature-settings: "calt", "ss01", "ss02", "ss03"; background: #000; color: #ededed; }
+  button, input, select { font: inherit; }
   body { margin: 0; height: 100dvh; display: grid; grid-template-rows: auto minmax(0,1fr); }
   [hidden] { display: none !important; }
   header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #242424; }

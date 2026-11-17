@@ -13,4 +13,4 @@ dependencies = ["kicad-python==0.7.1", "mcp==1.30.0"]
 include = ["dogbone"]
 
 [tool.setuptools.package-data]
-dogbone = ["web/*.html", "web/*.js", "web/LICENSE", "web/vendor/*.js", "web/utils/*.js"]
+dogbone = ["web/*.html", "web/*.js", "web/LICENSE", "web/vendor/*.js", "web/utils/*.js", "web/fonts/*"]
